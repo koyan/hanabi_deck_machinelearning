@@ -8,7 +8,7 @@ from sklearn.utils import class_weight
 # --- CONFIGURATION ---
 # We use the 'small' folder created by prepare_data.py
 DATA_DIR = "/app/hanabi_dataset_small"
-OUTPUT_DIR = "/app/output"
+OUTPUT_DIR = "/app"
 IMG_SIZE = (448, 448)  # High res to see Hanabi numbers clearly
 BATCH_SIZE = 4
 EPOCHS = 30
