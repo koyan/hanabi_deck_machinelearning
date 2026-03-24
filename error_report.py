@@ -9,7 +9,7 @@ MODEL_PATH = "/app/hanabi_model_v1.tflite"
 IMG_SIZE = (448, 448)
 
 def generate_error_report():
-    print("--- Loading Validation Set for Full Audit ---")
+    print("--- Starting Global Validation Audit ---")
     val_ds = tf.keras.utils.image_dataset_from_directory(
         DATA_DIR,
         validation_split=0.2,
@@ -29,8 +29,10 @@ def generate_error_report():
 
     # stats: { "card_name": [total_seen, wrong_guesses, { "confused_with": count }] }
     stats = defaultdict(lambda: [0, 0, defaultdict(int)])
+    total_correct = 0
+    total_images = 0
 
-    print("Analyzing every image in the validation set...")
+    print("Analyzing every image...")
     for images, labels in val_ds:
         img = images[0].numpy()
         true_label = class_names[labels[0]]
@@ -41,17 +43,30 @@ def generate_error_report():
         interpreter.invoke()
         
         output_data = interpreter.get_tensor(output_details[0]['index'])
-        pred_label = class_names[np.argmax(output_data[0])]
+        pred_idx = np.argmax(output_data[0])
+        pred_label = class_names[pred_idx]
 
-        # Update Statistics
+        # Update Global Stats
+        total_images += 1
         stats[true_label][0] += 1
-        if pred_label != true_label:
+        
+        if pred_label == true_label:
+            total_correct += 1
+        else:
             stats[true_label][1] += 1
             stats[true_label][2][pred_label] += 1
 
+    # --- GLOBAL SCORECARD ---
+    global_accuracy = (total_correct / total_images) * 100 if total_images > 0 else 0
+    
+    print("\n" + "#" * 45)
+    print(f" GLOBAL VALIDATION SCORE: {total_correct} / {total_images}")
+    print(f" TOTAL ACCURACY:           {global_accuracy:.2f}%")
+    print("#" * 45)
+
     # --- PRINTOUT 1: ACTION PLAN (ERROR FOCUS) ---
-    print("\n" + "!"*45)
-    print(f"{'TOP FAILURES (Focus Here)':<25} | {'ERRORS/TOTAL':<12} | {'FAILURE %'}")
+    print("\n" + "!" * 45)
+    print(f"{'TOP FAILURES':<25} | {'ERRORS/TOTAL':<12} | {'FAILURE %'}")
     print("-" * 45)
 
     error_only_stats = [item for item in stats.items() if item[1][1] > 0]
@@ -60,14 +75,12 @@ def generate_error_report():
     for card_name, counts in sorted_by_fail:
         total, errors, confusions = counts
         fail_percent = (errors / total * 100)
-        # Show what it was mostly confused with
-        most_common_mistake = max(confusions, key=confusions.get) if confusions else "None"
-        
+        most_common_mistake = max(confusions, key=confusions.get) if confusions else "N/A"
         print(f"{card_name:<25} | {errors:>2}/{total:<2}         | {fail_percent:>5.1f}%")
         print(f"   ↳ Most confused with: {most_common_mistake}")
 
     # --- PRINTOUT 2: FULL INVENTORY (ALPHABETICAL) ---
-    print("\n" + "="*45)
+    print("\n" + "=" * 45)
     print(f"{'FULL CARD INVENTORY':<25} | {'SUCCESS RATE':<12} | {'STATUS'}")
     print("-" * 45)
 
@@ -78,13 +91,14 @@ def generate_error_report():
         success = total - errors
         success_percent = (success / total * 100) if total > 0 else 0
         
-        status = "✅ PERFECT" if success_percent == 100 else "⚠️ NEEDS WORK"
-        if success_percent < 50: status = "❌ CRITICAL"
+        if success_percent == 100: status = "✅ PERFECT"
+        elif success_percent >= 80: status = "🟢 GOOD"
+        elif success_percent >= 50: status = "⚠️ POOR"
+        else: status = "❌ CRITICAL"
 
         print(f"{card_name:<25} | {success:>2}/{total:<2}         | {status}")
 
-    print("="*45)
-    print(f"Audit finished. Total unique cards checked: {len(stats)}")
+    print("=" * 45)
 
 if __name__ == "__main__":
     generate_error_report()
